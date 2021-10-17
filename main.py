@@ -1,4 +1,3 @@
-import speech_recognition as sr
 import pyttsx3
 import datetime
 import wikipedia
@@ -10,47 +9,59 @@ import subprocess
 import wolframalpha
 import json
 import requests
+import speech_recognition as sr
+
+from interface import agent_response
 
 engine = pyttsx3.init('sapi5')  # a Microsoft Text to speech engine used for voice recognition
 voices = engine.getProperty('voices')
-engine.setProperty('voice', 'voices[1].id')  # 0 for male voice, 1 for female voice
+engine.setProperty('voice', voices[1].id)  # 0 for male voice, 1 for female voice
 
 wolframalpha_client_key = 'R2K75H-7ELALHR35X'
 weather_error_codes = {'401', '404'}
+language = 'en-AU'
+should_show_input = True
+should_show_speech = True
 
 
 def speak(text: str):
+    if should_show_speech:
+        print(text)
     engine.say(text)
     engine.runAndWait()
 
 
-def wishMe():
-    hour = datetime.datetime.now().hour
-    if 0 <= hour < 12:
-        speak("Hello, Good Morning")
-        print("Hello, Good Morning")
-    elif 12 <= hour < 18:
-        speak("Hello, Good Afternoon")
-        print("Hello, Good Afternoon")
-    else:
-        speak("Hello, Good Evening")
-        print("Hello, Good Evening")
+def recognize_speech_from(timeout: int = 2) -> str:
+    """
+    Transcribe speech from recorded from default microphone.
 
+    :param timeout: the maximum number of seconds that this will wait for a phrase to start before giving up \
+    and throwing an speech_recognition.WaitTimeoutError exception. If timeout is None, there will be no wait \
+    timeout.
+    :return: transcribed speech in text
+    """
 
-def takeCommand() -> str:
     r = sr.Recognizer()
     with sr.Microphone() as source:
-        print("Listening...")
-        audio = r.listen(source)
+        r.adjust_for_ambient_noise(source, duration=0.5)
+        audio = r.listen(source, timeout=timeout)
+    transcript = r.recognize_google(audio, language=language)
 
-        try:
-            statement = r.recognize_google(audio, language='en-in')
-            print(f"user said:{statement}\n")
+    if should_show_input:
+        print(transcript)
 
-        except Exception as e:
-            speak("Pardon me, please say that again")
-            return "None"
-        return statement
+    return transcript
+
+
+def greet_user() -> None:
+    hour = datetime.datetime.now().hour
+
+    if 0 <= hour < 12:
+        speak("Good Morning")
+    elif 12 <= hour < 18:
+        speak("Good Afternoon")
+    else:
+        speak("Good Evening")
 
 
 def is_number(s: str) -> bool:
@@ -61,20 +72,25 @@ def is_number(s: str) -> bool:
         return False
 
 
-print("Loading your AI personal assistant G-One")
-speak("Loading your AI personal assistant G-One")
-wishMe()
-
 if __name__ == '__main__':
+    speak("Loading your AI personal assistant G-One")
+    greet_user()
+
     while True:
         speak("Tell me how can I help you now?")
-        statement = takeCommand().lower()
-        if statement == 0:
-            continue
+        while True:
+            try:
+                statement = recognize_speech_from().lower()
+                break
+            except sr.WaitTimeoutError:
+                speak(agent_response.WAIT_TIME_OUT_ERROR_MESSAGE)
+                continue
+            except sr.UnknownValueError:
+                speak(agent_response.UNKNOWN_VALUE_ERROR_MESSAGE)
+                continue
 
         if "good bye" in statement or "ok bye" in statement or "stop" in statement:
-            speak('your personal assistant G-one is shutting down,Good bye')
-            print('your personal assistant G-one is shutting down,Good bye')
+            speak('Your personal assistant G-one is shutting down. Goodbye.')
             break
 
         # Fetch comment from wikipedia
@@ -83,31 +99,30 @@ if __name__ == '__main__':
             statement = statement.replace("wikipedia", "")
             results = wikipedia.summary(statement, sentences=3, auto_suggest=False)  # auto_suggest causes errors
             speak("According to Wikipedia")
-            print(results)
             speak(results)
 
         elif 'open youtube' in statement:
             webbrowser.open_new_tab("https://www.youtube.com")
-            speak("youtube is open now")
+            speak("Opening Youtube...")
             time.sleep(5)
 
         elif 'open google' in statement:
             webbrowser.open_new_tab("https://www.google.com")
-            speak("Google chrome is open now")
+            speak("Opening browser...")
             time.sleep(5)
 
         elif 'open gmail' in statement:
             webbrowser.open_new_tab("https://www.gmail.com")
-            speak("Google Mail is open now")
+            speak("Opening Gmail...")
             time.sleep(5)
 
         elif 'time' in statement:
             current_time = datetime.datetime.now().strftime("%H:%M:%S")
-            speak(f"the time is {current_time}")
+            speak(f"It's {current_time}.")
 
         elif 'date' in statement:
             current_date = datetime.datetime.now().strftime("%m/%d/%Y")
-            speak(f"the date is {current_date}")
+            speak(f"It's {current_date}.")
 
         elif 'news' in statement:
             speak('Here are some headlines from the Times of India. Happy reading')
@@ -123,7 +138,7 @@ if __name__ == '__main__':
             time.sleep(5)
 
         elif 'ask' in statement:
-            speak('I can answer to computational and geographical questions  and what question do you want to ask now')
+            speak('I can answer computational and geographical questions and what question do you want to ask now')
             question = takeCommand()
             app_id = "Paste your unique ID here "
             client = wolframalpha.Client(wolframalpha_client_key)
