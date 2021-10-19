@@ -1,9 +1,21 @@
 import datetime
+import os
+import time
+import io
+import re
+import logging
+import uuid
+import pygame
 
 import pyttsx3
 import speech_recognition as sr
+
 from interface import agent_response
 from utils.modules import TerminationModule
+
+from google.cloud import dialogflow, texttospeech
+from google.auth.exceptions import GoogleAuthError
+from google.api_core.exceptions import GoogleAPIError
 
 
 class VoiceAssistant:
@@ -77,6 +89,137 @@ class VoiceAssistant:
     def exit(self) -> None:
         raise NotImplementedError
         pass
-#
+
+
+class DialogFlowVoiceAssistant:
+    def __init__(self, project_id: str or int, key_path: str):
+        self._project_id = project_id
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = key_path
+        self._language = 'en-AU'
+        self._voice_name = 'en-AU-Wavenet-C'
+        self._sample_rate_hertz = 16000
+        self._session_id = None
+        self._time_at_last_response_seconds = time.time()
+
+    @staticmethod
+    def _play(audio):
+        pygame.mixer.Sound(io.BytesIO(audio)).play()
+        while pygame.mixer.get_busy():
+            time.sleep(0.1)
+
+    def _text_to_speech(self, text):
+        client = texttospeech.TextToSpeechClient()
+        synthesis_input = texttospeech.SynthesisInput(text=text)
+        voice = texttospeech.VoiceSelectionParams(language_code=self._language, name=self._voice_name)
+        audio_config = texttospeech.AudioConfig(audio_encoding=texttospeech.AudioEncoding.LINEAR16)
+        response = client.synthesize_speech(input=synthesis_input, voice=voice, audio_config=audio_config)
+        return response.audio_content
+
+    def speak(self, text: str):
+        self._play(self._text_to_speech(text))
+
+    def boot(self) -> None:
+        pygame.mixer.init()
+
+        # self.greet_user()
+        self.listen()
+
+    def listen(self, ask_back: bool = True) -> None:
+        # def root_equals(intent, other):
+        #     # Check if intent requires any action
+        #
+        #     try:
+        #         root = re.findall(r'^\w+', intent)[0]
+        #         other_root = re.findall(r'^\w+', other)[0]
+        #     except IndexError:
+        #         return False
+        #     else:
+        #         return root.lower() == other_root.lower()
+
+        # start new session if not already in one or it's been more than 3 minutes since the last response
+        if not self._session_id or time.time() - self._time_at_last_response_seconds > 3 * 60:
+            self._session_id = uuid.uuid4()
+
+        try:
+            detection_result, audio_response = self._detect_intent_stream()
+        except (GoogleAPIError, GoogleAuthError) as e:
+            # log error and play error message
+            logging.error(e, e)
+            with open('../assets/error-message.wav', 'rb') as f:
+                self._play(f.read())
+        else:
+            if detection_result.intent.is_fallback:
+                if ask_back:
+                    self._play(audio_response)
+                    self.listen(ask_back=False)
+                else:
+                    self.speak("Sorry, I'm not sure I understand.")
+
+            elif re.match(r'^(smalltalk|jokes|easteregg)\.', detection_result.intent.display_name):
+                self._play(audio_response)
+
+            # elif root_equals(detection_result.intent.display_name, 'date'):
+            #     tell the weather
+
+            elif detection_result.intent.display_name == 'conversation.end':
+                self._play(audio_response)
+
+            if detection_result.intent.end_interaction:
+                self._session_id = None
+
+    @staticmethod
+    def _handle_intermediate_transcript(transcript):
+        print(transcript, end='\r')
+
+    def _detect_intent_stream(self):
+        """Returns the result of detect intent with streaming audio as input.
+
+        Using the same `_session_id` between requests allows continuation
+        of the conversation."""
+        def generate_request():
+            # The first request contains the configuration.
+            yield dialogflow.StreamingDetectIntentRequest(
+                session=session_path,
+                query_input=dialogflow.QueryInput(audio_config=audio_config),
+                output_audio_config=output_audio_config
+            )
+
+            # The later requests contains audio data from microphone
+            with sr.Microphone(sample_rate=audio_config.sample_rate_hertz) as audio_source:
+                while chunk := audio_source.stream.read(4096):
+                    yield dialogflow.StreamingDetectIntentRequest(input_audio=chunk)
+
+        session_client = dialogflow.SessionsClient()
+
+        session_path = session_client.session_path(self._project_id, self._session_id)
+        logging.info(f"Session path: {session_path}\n")
+
+        audio_config = dialogflow.InputAudioConfig(
+            audio_encoding=dialogflow.AudioEncoding.AUDIO_ENCODING_LINEAR_16,
+            language_code=self._language,
+            sample_rate_hertz=self._sample_rate_hertz,
+            single_utterance=True
+        )
+        voice = dialogflow.VoiceSelectionParams(name=self._voice_name)
+        output_audio_config = dialogflow.OutputAudioConfig(
+            # audio_encoding=dialogflow.OutputAudioEncoding.OUTPUT_AUDIO_ENCODING_MP3_64_KBPS
+            audio_encoding=dialogflow.OutputAudioEncoding.OUTPUT_AUDIO_ENCODING_LINEAR_16,
+            synthesize_speech_config=dialogflow.SynthesizeSpeechConfig(voice=voice)
+        )
+
+        responses = session_client.streaming_detect_intent(requests=generate_request())
+        query_result = response = None
+        for response in responses:
+            self._handle_intermediate_transcript(response.recognition_result.transcript)
+            if response.query_result.intent.display_name:
+                query_result = response.query_result
+
+        return query_result, response.output_audio
+
+
+key_path = "C:/Users/Mason Z/GoogleCloud/keys/isaac-drqa-0ea7d58d60db.json"
+project_id = 'isaac-drqa'
+agent = DialogFlowVoiceAssistant(project_id, key_path)
+agent.boot()
 # ai = VoiceAssistant()
 # ai.speak('hi')

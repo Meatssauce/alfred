@@ -3,8 +3,6 @@ import os
 
 import speech_recognition as sr
 
-from pydub import AudioSegment
-from pydub.playback import play
 import io
 import pygame
 from google.cloud import dialogflow
@@ -13,12 +11,12 @@ from google.cloud import dialogflow
 def detect_intent_stream(project_id, session_id, audio_file_path, language_code):
     """Returns the result of detect intent with streaming audio as input.
 
-    Using the same `session_id` between requests allows continuation
+    Using the same `_session_id` between requests allows continuation
     of the conversation."""
 
     session_client = dialogflow.SessionsClient()
 
-    # Note: hard coding audio_encoding and sample_rate_hertz for simplicity.
+    # Note: hard coding audio_encoding and _sample_rate_hertz for simplicity.
     audio_encoding = dialogflow.AudioEncoding.AUDIO_ENCODING_LINEAR_16
     sample_rate_hertz = 16000
 
@@ -31,7 +29,8 @@ def detect_intent_stream(project_id, session_id, audio_file_path, language_code)
 
         # The first request contains the configuration.
         yield dialogflow.StreamingDetectIntentRequest(
-            session=session_path, query_input=query_input,
+            session=session_path,
+            query_input=query_input,
             output_audio_config=output_audio_config
         )
 
@@ -55,13 +54,17 @@ def detect_intent_stream(project_id, session_id, audio_file_path, language_code)
     # Set the query parameters with sentiment analysis
     output_audio_config = dialogflow.OutputAudioConfig(
         # audio_encoding=dialogflow.OutputAudioEncoding.OUTPUT_AUDIO_ENCODING_MP3_64_KBPS
-        audio_encoding=dialogflow.OutputAudioEncoding.OUTPUT_AUDIO_ENCODING_LINEAR_16
+        audio_encoding=dialogflow.OutputAudioEncoding.OUTPUT_AUDIO_ENCODING_LINEAR_16,
+        synthesize_speech_config=dialogflow.SynthesizeSpeechConfig(
+            dialogflow.VoiceSelectionParams(name='en-AU-Wavenet-C')
+        )
     )
 
     requests = request_generator(audio_config, audio_file_path, output_audio_config)
     responses = session_client.streaming_detect_intent(requests=requests)
 
     print("=" * 20)
+    query_result = None
     for response in responses:
         print(
             'Intermediate transcript: "{}".'.format(
@@ -69,11 +72,11 @@ def detect_intent_stream(project_id, session_id, audio_file_path, language_code)
             )
         )
         if response.query_result.intent.display_name:
-            print(response.query_result.intent.display_name)
+            query_result = response.query_result
 
     # Note: The result from the last response is the final transcript along
-    # with the detected content.
-    query_result = response.query_result
+    # with the detected content. or second last if output audio is true, audio is always in the last response
+    # query_result = response.query_result
 
     print("=" * 20)
     print("Query text: {}".format(query_result.query_text))
@@ -88,14 +91,14 @@ def detect_intent_stream(project_id, session_id, audio_file_path, language_code)
     pygame.mixer.init()
     sound = pygame.mixer.Sound(io.BytesIO(response.output_audio))
     sound.play()
-    while pygame.mixer.music.get_busy():
-        time.sleep(0.1)
+    while pygame.mixer.get_busy():
+        time.sleep(1)
 
 
 # os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "C:/Users/Mason Z/GoogleCloud/keys/newagent-umpx-57b11a68ca3e.json"
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "C:/Users/Mason Z/GoogleCloud/keys/isaac-drqa-0ea7d58d60db.json"
 project_id = 'isaac-drqa'
-session_id = 1234567899
+session_id = '123456xz7899'
 # audio_file_path = 'microphone-results.raw'
 audio_file_path = ''
 language_code = 'en-AU'
