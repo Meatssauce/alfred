@@ -56,7 +56,7 @@ def detect_intent_stream(project_id, session_id, audio_file_path, language_code)
         # audio_encoding=dialogflow.OutputAudioEncoding.OUTPUT_AUDIO_ENCODING_MP3_64_KBPS
         audio_encoding=dialogflow.OutputAudioEncoding.OUTPUT_AUDIO_ENCODING_LINEAR_16,
         synthesize_speech_config=dialogflow.SynthesizeSpeechConfig(
-            dialogflow.VoiceSelectionParams(name='en-AU-Wavenet-C')
+            voice=dialogflow.VoiceSelectionParams(name='en-AU-Wavenet-C')
         )
     )
 
