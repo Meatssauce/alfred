@@ -9,6 +9,7 @@ import pygame
 
 import pyttsx3
 import speech_recognition as sr
+from pydub import AudioSegment
 
 from interface import agent_response
 from utils.modules import TerminationModule
@@ -115,13 +116,14 @@ class DialogFlowVoiceAssistant:
         response = client.synthesize_speech(input=synthesis_input, voice=voice, audio_config=audio_config)
         return response.audio_content
 
-    def speak(self, text: str):
+    def speak(self, text: str) -> None:
         self._play(self._text_to_speech(text))
 
     def boot(self) -> None:
         pygame.mixer.init()
 
         # self.greet_user()
+        self.speak('Greetings. My name is Vivy. How may I help you?')
         self.listen()
 
     def listen(self, ask_back: bool = True) -> None:
@@ -167,9 +169,14 @@ class DialogFlowVoiceAssistant:
             if detection_result.intent.end_interaction:
                 self._session_id = None
 
+        self._time_at_last_response_seconds = time.time()
+
     @staticmethod
     def _handle_intermediate_transcript(transcript):
-        print(transcript, end='\r')
+        if transcript and not transcript.isspace():
+            print(transcript, end='\r')
+
+        # print(bool(transcript))
 
     def _detect_intent_stream(self):
         """Returns the result of detect intent with streaming audio as input.
@@ -186,7 +193,7 @@ class DialogFlowVoiceAssistant:
 
             # The later requests contains audio data from microphone
             with sr.Microphone(sample_rate=audio_config.sample_rate_hertz) as audio_source:
-                while chunk := audio_source.stream.read(4096):
+                while chunk := audio_source.stream.read(1024):
                     yield dialogflow.StreamingDetectIntentRequest(input_audio=chunk)
 
         session_client = dialogflow.SessionsClient()
@@ -215,6 +222,14 @@ class DialogFlowVoiceAssistant:
                 query_result = response.query_result
 
         return query_result, response.output_audio
+
+
+def mp3_to_wav_mem(file):
+    audio = AudioSegment.from_file_using_temporary_files(file, 'mp3')
+    file = io.BytesIO()
+    file = audio.export(file, format="wav")
+    file.seek(0)
+    return file
 
 
 key_path = "C:/Users/Mason Z/GoogleCloud/keys/isaac-drqa-0ea7d58d60db.json"
